@@ -4,7 +4,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Działa Flask na Azure!"
+    return "Hello world!"
 
 if app == "main":
     app.run()
