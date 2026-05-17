@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request, redirect
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
 
@@ -43,7 +43,7 @@ class PlayerGoal(db.Model):
     game = db.relationship('Game')
 
 # ==========================================
-# BAZA + DANE
+# BAZA + DANE STARTOWE
 # ==========================================
 
 with app.app_context():
@@ -65,26 +65,12 @@ with app.app_context():
         db.session.add_all([p1, p2, p3])
         db.session.commit()
 
-        g1 = Game(home_team_id=legia.id, away_team_id=lech.id, home_score=3, away_score=1)
-        g2 = Game(home_team_id=wisla.id, away_team_id=legia.id, home_score=2, away_score=2)
-
-        db.session.add_all([g1, g2])
-        db.session.commit()
-
-        db.session.add_all([
-            PlayerGoal(player=p1, game=g1, goals=2),
-            PlayerGoal(player=p2, game=g1, goals=1),
-            PlayerGoal(player=p1, game=g2, goals=1),
-            PlayerGoal(player=p3, game=g2, goals=2),
-        ])
-
-        db.session.commit()
-
 # ==========================================
-# LOGIKA
+# LOGIKA LIGI
 # ==========================================
 
-def team_table():
+def table():
+
     teams = Team.query.all()
     result = []
 
@@ -103,7 +89,7 @@ def team_table():
         for g in away:
             if g.away_score > g.home_score:
                 points += 3
-            elif g.away_score == g.away_score:
+            elif g.away_score == g.home_score:
                 points += 1
 
         result.append({"team": t.name, "points": points})
@@ -112,149 +98,96 @@ def team_table():
 
 
 def best_player():
+
     return db.session.query(
         Player.name,
         func.sum(PlayerGoal.goals).label("goals")
     ).join(PlayerGoal).group_by(Player.id).order_by(func.sum(PlayerGoal.goals).desc()).first()
 
-
-def best_vs_team(team_name):
-    team = Team.query.filter_by(name=team_name).first()
-
-    return db.session.query(
-        Player.name,
-        func.sum(PlayerGoal.goals).label("goals")
-    ).join(PlayerGoal).join(Game).filter(
-        (Game.home_team_id == team.id) | (Game.away_team_id == team.id)
-    ).filter(
-        Player.team_id != team.id
-    ).group_by(Player.id).order_by(func.sum(PlayerGoal.goals).desc()).first()
-
-
 # ==========================================
-# UI (POPRAWIONE CZYTELNOŚĆ)
+# UI
 # ==========================================
 
 HTML = """
 <!DOCTYPE html>
-<html lang="pl">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Liga1 Dashboard</title>
+<title>Liga1 Admin Panel</title>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
-
-body {
-    background: #f5f7fb;
-    color: #111;
-}
-
-.title {
-    text-align: center;
-    font-size: 36px;
-    font-weight: 800;
-    margin: 30px 0;
-    color: #111;
-}
-
-.card {
-    border: none;
-    border-radius: 15px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
-}
-
-.card h5 {
-    font-weight: 700;
-    color: #111;
-}
-
-.big-number {
-    font-size: 26px;
-    font-weight: 700;
-    color: #16a34a;
-}
-
-table {
-    color: #111;
-}
-
-th {
-    background: #111 !important;
-    color: white !important;
-}
-
-td {
-    color: #111;
-}
-
+body { background:#f5f7fb; }
+.card { border-radius:15px; box-shadow:0 5px 20px rgba(0,0,0,0.1); }
+.title { text-align:center; font-size:34px; font-weight:800; margin:20px; }
 </style>
-
 </head>
 
 <body>
 
 <div class="container">
 
-<div class="title">⚽ Liga1 Dashboard</div>
+<div class="title">⚽ Liga1 – Panel Admina</div>
 
-<div class="row g-3">
+<!-- MENU -->
+<div class="row mb-3">
 
-    <div class="col-md-4">
-        <div class="card p-3">
-            <h5>🏆 Najlepsza drużyna</h5>
-            <div class="big-number">
-                {{ table[0].team }} — {{ table[0].points }} pkt
-            </div>
-        </div>
-    </div>
+<div class="col">
+<a href="/" class="btn btn-dark w-100">Dashboard</a>
+</div>
 
-    <div class="col-md-4">
-        <div class="card p-3">
-            <h5>⭐ Najlepszy zawodnik</h5>
-            <div class="big-number">
-                {{ player.name }}
-            </div>
-            <div>{{ player.goals }} goli</div>
-        </div>
-    </div>
+<div class="col">
+<a href="/add_team" class="btn btn-primary w-100">Dodaj drużynę</a>
+</div>
 
-    <div class="col-md-4">
-        <div class="card p-3">
-            <h5>🔥 VS Legia</h5>
-            <div class="big-number">
-                {{ vs_player.name }}
-            </div>
-            <div>{{ vs_player.goals }} goli</div>
-        </div>
-    </div>
+<div class="col">
+<a href="/add_player" class="btn btn-success w-100">Dodaj zawodnika</a>
+</div>
+
+<div class="col">
+<a href="/add_game" class="btn btn-warning w-100">Dodaj mecz</a>
+</div>
 
 </div>
 
+<!-- TOP -->
+<div class="row">
+
+<div class="col-md-4">
+<div class="card p-3">
+<h5>🏆 Lider</h5>
+<b>{{ table[0].team }}</b><br>
+{{ table[0].points }} pkt
+</div>
+</div>
+
+<div class="col-md-4">
+<div class="card p-3">
+<h5>⭐ Najlepszy zawodnik</h5>
+<b>{{ player.name }}</b><br>
+{{ player.goals }} goli
+</div>
+</div>
+
+</div>
+
+<!-- TABELA -->
 <div class="card mt-4 p-3">
 
-<h5>📊 Tabela ligowa</h5>
+<h5>Tabela</h5>
 
-<table class="table table-striped table-hover mt-2">
+<table class="table table-striped">
 
-<thead>
-<tr>
-<th>Miejsce</th>
-<th>Drużyna</th>
-<th>Punkty</th>
-</tr>
-</thead>
+<tr><th>Miejsce</th><th>Drużyna</th><th>Punkty</th></tr>
 
-<tbody>
-{% for row in table %}
+{% for r in table %}
 <tr>
 <td>{{ loop.index }}</td>
-<td>{{ row.team }}</td>
-<td><b>{{ row.points }}</b></td>
+<td>{{ r.team }}</td>
+<td>{{ r.points }}</td>
 </tr>
 {% endfor %}
-</tbody>
 
 </table>
 
@@ -267,23 +200,128 @@ td {
 """
 
 # ==========================================
-# ROUTE
+# DASHBOARD
 # ==========================================
 
 @app.route("/")
 def home():
-
-    table = team_table()
-    player = best_player()
-    vs_player = best_vs_team("Legia Warszawa")
-
     return render_template_string(
         HTML,
-        table=table,
-        player=player,
-        vs_player=vs_player
+        table=table(),
+        player=best_player()
     )
 
+# ==========================================
+# DODAWANIE DRUŻYNY
+# ==========================================
+
+@app.route("/add_team", methods=["GET","POST"])
+def add_team():
+
+    if request.method == "POST":
+        db.session.add(Team(name=request.form["name"]))
+        db.session.commit()
+        return redirect("/")
+
+    return """
+    <h2>Dodaj drużynę</h2>
+    <form method="POST">
+        <input name="name" placeholder="Nazwa">
+        <button>Dodaj</button>
+    </form>
+    """
+
+# ==========================================
+# DODAWANIE ZAWODNIKA
+# ==========================================
+
+@app.route("/add_player", methods=["GET","POST"])
+def add_player():
+
+    teams = Team.query.all()
+
+    if request.method == "POST":
+        db.session.add(Player(
+            name=request.form["name"],
+            team_id=request.form["team_id"]
+        ))
+        db.session.commit()
+        return redirect("/")
+
+    form = """
+    <h2>Dodaj zawodnika</h2>
+    <form method="POST">
+        <input name="name" placeholder="Imię">
+
+        <select name="team_id">
+    """
+
+    for t in teams:
+        form += f'<option value="{t.id}">{t.name}</option>'
+
+    form += """
+        </select>
+
+        <button>Dodaj</button>
+    </form>
+    """
+
+    return form
+
+# ==========================================
+# DODAWANIE MECZU
+# ==========================================
+
+@app.route("/add_game", methods=["GET","POST"])
+def add_game():
+
+    teams = Team.query.all()
+
+    if request.method == "POST":
+        db.session.add(Game(
+            home_team_id=request.form["home"],
+            away_team_id=request.form["away"],
+            home_score=request.form["home_score"],
+            away_score=request.form["away_score"]
+        ))
+        db.session.commit()
+        return redirect("/")
+
+    form = """
+    <h2>Dodaj mecz</h2>
+
+    <form method="POST">
+
+    <select name="home">
+    """
+
+    for t in teams:
+        form += f'<option value="{t.id}">{t.name}</option>'
+
+    form += """
+    </select>
+
+    <select name="away">
+    """
+
+    for t in teams:
+        form += f'<option value="{t.id}">{t.name}</option>'
+
+    form += """
+    </select>
+
+    <input name="home_score" placeholder="Gole dom">
+    <input name="away_score" placeholder="Gole wyjazd">
+
+    <button>Dodaj</button>
+    </form>
+    """
+
+    return form
+
+# ==========================================
+# START
+# ==========================================
 
 if __name__ == "__main__":
     app.run(debug=True)
