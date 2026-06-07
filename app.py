@@ -1,7 +1,7 @@
 from flask import Flask, render_template_string, request, redirect, session
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func
 from functools import wraps
+from sqlalchemy import func
 import os
 
 app = Flask(__name__)
@@ -45,7 +45,7 @@ class Team(db.Model):
 class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
-    team_id = db.Column(db.Integer, db.ForeignKey("team.id"))
+    team_id = db.Column(db.Integer)
 
 class Game(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -116,7 +116,7 @@ def table():
         for g in away:
             if g.away_score > g.home_score:
                 pts += 3
-            elif g.away_score == g.home_score:
+            elif g.away_score == g.away_score:
                 pts += 1
 
         result.append({"team": t.name, "points": pts})
@@ -154,7 +154,7 @@ def login():
             session["role"] = USERS[u]["role"]
             return redirect("/")
 
-        error = "Błędny login"
+        error = "Błędne dane"
 
     return f"""
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -182,74 +182,153 @@ def logout():
     return redirect("/")
 
 # ==========================================
-# ADD DATA (ADMIN)
+# ADMIN PANEL
 # ==========================================
 
-@app.route("/add_team", methods=["GET", "POST"])
+@app.route("/admin")
+@admin_required
+def admin():
+    teams = Team.query.all()
+
+    return render_template_string("""
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <div class="container mt-5">
+
+        <h2>🛠️ Panel Admina</h2>
+
+        <div class="row mt-4">
+
+            <div class="col-md-4">
+                <div class="card p-3 shadow">
+                    <h5>➕ Drużyna</h5>
+                    <form method="POST" action="/add_team">
+                        <input name="name" class="form-control mb-2">
+                        <button class="btn btn-primary w-100">Dodaj</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card p-3 shadow">
+                    <h5>👤 Zawodnik</h5>
+                    <form method="POST" action="/add_player">
+                        <input name="name" class="form-control mb-2">
+
+                        <select name="team" class="form-select mb-2">
+                            {% for t in teams %}
+                                <option value="{{ t.id }}">{{ t.name }}</option>
+                            {% endfor %}
+                        </select>
+
+                        <button class="btn btn-success w-100">Dodaj</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card p-3 shadow">
+                    <h5>⚽ Mecze</h5>
+                    <a href="/add_game" class="btn btn-warning w-100">Dodaj mecz</a>
+                </div>
+            </div>
+
+        </div>
+
+        <a href="/" class="btn btn-secondary mt-3">Powrót</a>
+
+    </div>
+    """, teams=teams)
+
+# ==========================================
+# ADD TEAM
+# ==========================================
+
+@app.route("/add_team", methods=["POST"])
 @admin_required
 def add_team():
-    if request.method == "POST":
-        db.session.add(Team(name=request.form["name"]))
-        db.session.commit()
-        return redirect("/")
-    return "<form method='POST'><input name='name'><button>OK</button></form>"
+    db.session.add(Team(name=request.form["name"]))
+    db.session.commit()
+    return redirect("/admin")
+
+# ==========================================
+# ADD PLAYER
+# ==========================================
+
+@app.route("/add_player", methods=["POST"])
+@admin_required
+def add_player():
+    db.session.add(Player(
+        name=request.form["name"],
+        team_id=request.form["team"]
+    ))
+    db.session.commit()
+    return redirect("/admin")
+
+# ==========================================
+# ADD GAME (WITH VALIDATION)
+# ==========================================
 
 @app.route("/add_game", methods=["GET", "POST"])
 @admin_required
 def add_game():
     teams = Team.query.all()
+    error = ""
 
     if request.method == "POST":
-        db.session.add(Game(
-            home_team_id=request.form["home"],
-            away_team_id=request.form["away"],
-            home_score=request.form["hs"],
-            away_score=request.form["as"]
-        ))
-        db.session.commit()
-        return redirect("/")
+        home = request.form["home"]
+        away = request.form["away"]
 
-    form = "<form method='POST'>"
-    form += "<select name='home'>"
-    for t in teams:
-        form += f"<option value='{t.id}'>{t.name}</option>"
-    form += "</select>"
+        if home == away:
+            error = "❌ Nie można dodać meczu tej samej drużyny"
+        else:
+            db.session.add(Game(
+                home_team_id=home,
+                away_team_id=away,
+                home_score=request.form["hs"],
+                away_score=request.form["as"]
+            ))
+            db.session.commit()
+            return redirect("/")
 
-    form += "<select name='away'>"
-    for t in teams:
-        form += f"<option value='{t.id}'>{t.name}</option>"
-    form += "</select>"
+    return render_template_string("""
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    form += "<input name='hs' placeholder='home'><input name='as' placeholder='away'>"
-    form += "<button>OK</button></form>"
+    <div class="container mt-5" style="max-width:600px;">
+        <div class="card p-4 shadow">
 
-    return form
+            <h3>⚽ Dodaj mecz</h3>
 
-@app.route("/add_player", methods=["GET", "POST"])
-@admin_required
-def add_player():
-    teams = Team.query.all()
+            <form method="POST">
 
-    if request.method == "POST":
-        db.session.add(Player(
-            name=request.form["name"],
-            team_id=request.form["team"]
-        ))
-        db.session.commit()
-        return redirect("/")
+                <select name="home" class="form-select mb-2">
+                    {% for t in teams %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
 
-    form = "<form method='POST'>"
-    form += "<input name='name'>"
-    form += "<select name='team'>"
+                <select name="away" class="form-select mb-2">
+                    {% for t in teams %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
 
-    for t in teams:
-        form += f"<option value='{t.id}'>{t.name}</option>"
+                <input name="hs" class="form-control mb-2" placeholder="Gole gospodarzy">
+                <input name="as" class="form-control mb-2" placeholder="Gole gości">
 
-    form += "</select><button>OK</button></form>"
-    return form
+                <button class="btn btn-success w-100">Dodaj</button>
+            </form>
+
+            <p class="text-danger">{{ error }}</p>
+
+            <a href="/admin" class="btn btn-secondary mt-2">Powrót</a>
+
+        </div>
+    </div>
+    """, teams=teams, error=error)
 
 # ==========================================
-# HOME UI
+# HOME
 # ==========================================
 
 HTML = """
@@ -259,14 +338,9 @@ HTML = """
 <meta charset="UTF-8">
 <title>Liga PRO</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-
-<style>
-body { background:#eef2f7; }
-.card { border-radius:15px; }
-</style>
 </head>
 
-<body>
+<body class="bg-light">
 
 <div class="container mt-4">
 
@@ -275,20 +349,18 @@ body { background:#eef2f7; }
 
 <div>
 <b>{{ user }}</b>
+
 <a href="/login" class="btn btn-sm btn-primary">Login</a>
 <a href="/logout" class="btn btn-sm btn-danger">Logout</a>
-</div>
-</div>
 
 {% if role == "admin" %}
-<div class="mb-3">
-<a href="/add_team" class="btn btn-primary">Drużyna</a>
-<a href="/add_game" class="btn btn-warning">Mecz</a>
-<a href="/add_player" class="btn btn-success">Zawodnik</a>
-</div>
+<a href="/admin" class="btn btn-sm btn-dark">Admin</a>
 {% endif %}
 
-<div class="card p-3 mb-3">
+</div>
+</div>
+
+<div class="card p-3 mt-3">
 <h4>🏆 Tabela</h4>
 
 <table class="table">
@@ -305,7 +377,7 @@ body { background:#eef2f7; }
 </table>
 </div>
 
-<div class="card p-3 mb-3">
+<div class="card p-3 mt-3">
 <h4>⭐ Król strzelców</h4>
 <b>{{ scorer.name }}</b> - {{ scorer.g }} goli
 </div>
@@ -315,10 +387,6 @@ body { background:#eef2f7; }
 </body>
 </html>
 """
-
-# ==========================================
-# ROUTE
-# ==========================================
 
 @app.route("/")
 def home():
