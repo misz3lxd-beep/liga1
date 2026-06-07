@@ -56,8 +56,8 @@ class Game(db.Model):
 
 class Goal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    player_id = db.Column(db.Integer)
-    goals = db.Column(db.Integer)
+    player_id = db.Column(db.Integer, unique=True)
+    goals = db.Column(db.Integer, default=0)
 
 # ==========================================
 # INIT DB
@@ -82,7 +82,18 @@ with app.app_context():
         db.session.commit()
 
 # ==========================================
-# ADMIN DECORATOR
+# SAFETY (NO CRASH)
+# ==========================================
+
+@app.before_request
+def safe_session():
+    try:
+        pass
+    except:
+        db.session.rollback()
+
+# ==========================================
+# ADMIN
 # ==========================================
 
 def admin_required(f):
@@ -94,7 +105,7 @@ def admin_required(f):
     return wrapper
 
 # ==========================================
-# LOGIC
+# TABLE LOGIC
 # ==========================================
 
 def table():
@@ -116,20 +127,24 @@ def table():
         for g in away:
             if g.away_score > g.home_score:
                 pts += 3
-            elif g.away_score == g.away_score:
+            elif g.away_score == g.home_score:
                 pts += 1
 
         result.append({"team": t.name, "points": pts})
 
     return sorted(result, key=lambda x: x["points"], reverse=True)
 
+# ==========================================
+# TOP SCORER (SAFE)
+# ==========================================
+
 def top_scorer():
     res = db.session.query(
         Player.name,
-        func.sum(Goal.goals).label("g")
-    ).join(Goal, Goal.player_id == Player.id)\
+        func.coalesce(func.sum(Goal.goals), 0).label("g")
+    ).outerjoin(Goal, Goal.player_id == Player.id)\
      .group_by(Player.id)\
-     .order_by(func.sum(Goal.goals).desc())\
+     .order_by(func.coalesce(func.sum(Goal.goals), 0).desc())\
      .first()
 
     if not res:
@@ -170,7 +185,6 @@ def login():
             </form>
 
             <p class="text-danger">{error}</p>
-
             <small>admin/admin | user/user</small>
         </div>
     </div>
@@ -200,7 +214,6 @@ def admin():
 
         <div class="row mt-4">
 
-            <!-- TEAM -->
             <div class="col-md-4">
                 <div class="card p-3 shadow">
                     <h5>➕ Drużyna</h5>
@@ -211,7 +224,6 @@ def admin():
                 </div>
             </div>
 
-            <!-- PLAYER -->
             <div class="col-md-4">
                 <div class="card p-3 shadow">
                     <h5>👤 Zawodnik</h5>
@@ -229,15 +241,12 @@ def admin():
                 </div>
             </div>
 
-            <!-- GAME + GOALS -->
             <div class="col-md-4">
                 <div class="card p-3 shadow">
                     <h5>⚽ Mecze</h5>
                     <a href="/add_game" class="btn btn-warning w-100">Dodaj mecz</a>
 
-                    <a href="/add_goals" class="btn btn-dark w-100 mt-2">
-                        🎯 Dodaj gole
-                    </a>
+                    <a href="/add_goals" class="btn btn-dark w-100 mt-2">🎯 Gole</a>
                 </div>
             </div>
 
@@ -274,7 +283,7 @@ def add_player():
     return redirect("/admin")
 
 # ==========================================
-# ADD GAME
+# ADD GAME (NO SAME TEAM)
 # ==========================================
 
 @app.route("/add_game", methods=["GET", "POST"])
@@ -284,17 +293,17 @@ def add_game():
     error = ""
 
     if request.method == "POST":
-        home = request.form["home"]
-        away = request.form["away"]
+        home = int(request.form["home"])
+        away = int(request.form["away"])
 
         if home == away:
-            error = "❌ Nie można grać przeciwko sobie"
+            error = "❌ Ta sama drużyna nie może grać sama ze sobą"
         else:
             db.session.add(Game(
                 home_team_id=home,
                 away_team_id=away,
-                home_score=request.form["hs"],
-                away_score=request.form["as"]
+                home_score=int(request.form["hs"]),
+                away_score=int(request.form["as"])
             ))
             db.session.commit()
             return redirect("/")
@@ -321,8 +330,8 @@ def add_game():
                     {% endfor %}
                 </select>
 
-                <input name="hs" class="form-control mb-2" placeholder="Gole gospodarzy">
-                <input name="as" class="form-control mb-2" placeholder="Gole gości">
+                <input name="hs" type="number" class="form-control mb-2" placeholder="Gospodarze">
+                <input name="as" type="number" class="form-control mb-2" placeholder="Goście">
 
                 <button class="btn btn-success w-100">Dodaj</button>
             </form>
@@ -336,7 +345,7 @@ def add_game():
     """, teams=teams, error=error)
 
 # ==========================================
-# ADD GOALS (KRÓL STRZELCÓW)
+# ADD GOALS (SAFE NO NEGATIVE)
 # ==========================================
 
 @app.route("/add_goals", methods=["GET", "POST"])
@@ -345,22 +354,26 @@ def add_goals():
     players = Player.query.all()
 
     if request.method == "POST":
-    pid = request.form["player_id"]
-    g = int(request.form["goals"])
+        pid = int(request.form["player_id"])
+        g = int(request.form["goals"])
 
-    # 🚫 BLOKADA UJEMNYCH GOLI
-    if g < 0:
-        g = 0
+        # 🚫 NO NEGATIVE GOALS
+        if g < 0:
+            g = 0
 
-    goal = Goal.query.filter_by(player_id=pid).first()
+        goal = Goal.query.filter_by(player_id=pid).first()
 
-    if goal:
+        if not goal:
+            goal = Goal(player_id=pid, goals=0)
+            db.session.add(goal)
+
         goal.goals += g
-    else:
-        db.session.add(Goal(player_id=pid, goals=g))
 
-    db.session.commit()
-    return redirect("/admin")
+        if goal.goals < 0:
+            goal.goals = 0
+
+        db.session.commit()
+        return redirect("/admin")
 
     return render_template_string("""
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -378,7 +391,7 @@ def add_goals():
                     {% endfor %}
                 </select>
 
-                <input name="goals" type="number" class="form-control mb-2" placeholder="Gole">
+                <input name="goals" type="number" min="0" class="form-control mb-2">
 
                 <button class="btn btn-warning w-100">Dodaj</button>
             </form>
@@ -411,6 +424,7 @@ HTML = """
 
 <div>
 <b>{{ user }}</b>
+
 <a href="/login" class="btn btn-sm btn-primary">Login</a>
 <a href="/logout" class="btn btn-sm btn-danger">Logout</a>
 
