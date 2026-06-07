@@ -7,7 +7,18 @@ import os
 app = Flask(__name__)
 
 # ==========================================
-# CONFIG (AZURE FIX)
+# AZURE SESSION FIX
+# ==========================================
+
+app.secret_key = "liga1-secret-key-stable"
+
+app.config.update(
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False
+)
+
+# ==========================================
+# DATABASE (AZURE SAFE PATH)
 # ==========================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,7 +26,6 @@ DB_PATH = os.path.join(BASE_DIR, "liga1.db")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.secret_key = "liga1-secret-key"
 
 db = SQLAlchemy(app)
 
@@ -40,12 +50,11 @@ class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     team_id = db.Column(db.Integer, db.ForeignKey("team.id"))
-    team = db.relationship("Team")
 
 class Game(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    home_team_id = db.Column(db.Integer, db.ForeignKey("team.id"))
-    away_team_id = db.Column(db.Integer, db.ForeignKey("team.id"))
+    home_team_id = db.Column(db.Integer)
+    away_team_id = db.Column(db.Integer)
     home_score = db.Column(db.Integer)
     away_score = db.Column(db.Integer)
 
@@ -55,10 +64,8 @@ class PlayerGoal(db.Model):
     game_id = db.Column(db.Integer, db.ForeignKey("game.id"))
     goals = db.Column(db.Integer)
 
-    player = db.relationship("Player")
-
 # ==========================================
-# DB INIT
+# INIT DB
 # ==========================================
 
 with app.app_context():
@@ -72,11 +79,11 @@ with app.app_context():
         db.session.add_all([t1, t2, t3])
         db.session.commit()
 
-        p1 = Player(name="Kowalski", team=t1)
-        p2 = Player(name="Nowak", team=t2)
-        p3 = Player(name="Zieliński", team=t3)
-
-        db.session.add_all([p1, p2, p3])
+        db.session.add_all([
+            Player(name="Kowalski", team_id=t1.id),
+            Player(name="Nowak", team_id=t2.id),
+            Player(name="Zieliński", team_id=t3.id),
+        ])
         db.session.commit()
 
 # ==========================================
@@ -156,13 +163,18 @@ def login():
     <form method="POST">
         <input name="username" placeholder="login"><br><br>
         <input type="password" name="password" placeholder="hasło"><br><br>
-        <button>Login</button>
+        <button>Zaloguj</button>
     </form>
     <p style='color:red'>{error}</p>
     <hr>
     admin/admin<br>
-    user/user
+    user/user<br>
+    <a href="/">Wejdź jako gość</a>
     """
+
+# ==========================================
+# LOGOUT (FIXED)
+# ==========================================
 
 @app.route("/logout")
 def logout():
@@ -170,7 +182,7 @@ def logout():
     return redirect("/")
 
 # ==========================================
-# TEMPLATE
+# DASHBOARD
 # ==========================================
 
 HTML = """
@@ -189,7 +201,11 @@ HTML = """
 
 <div class="card p-3 mb-3">
 Zalogowany: <b>{{ username }}</b> | Rola: <b>{{ role }}</b>
-<a href="/logout" class="btn btn-danger btn-sm float-end">Logout</a>
+
+<a href="/logout" class="btn btn-danger btn-sm float-end">
+Wyloguj
+</a>
+
 </div>
 
 {% if role == "admin" %}
@@ -210,8 +226,10 @@ Zalogowany: <b>{{ username }}</b> | Rola: <b>{{ role }}</b>
 
 <div class="card p-3">
 <h5>Tabela</h5>
+
 <table class="table">
 <tr><th>#</th><th>Drużyna</th><th>Punkty</th></tr>
+
 {% for r in table %}
 <tr>
 <td>{{ loop.index }}</td>
@@ -219,17 +237,16 @@ Zalogowany: <b>{{ username }}</b> | Rola: <b>{{ role }}</b>
 <td>{{ r.points }}</td>
 </tr>
 {% endfor %}
+
 </table>
+
 </div>
 
 </div>
+
 </body>
 </html>
 """
-
-# ==========================================
-# HOME
-# ==========================================
 
 @app.route("/")
 def home():
@@ -242,7 +259,7 @@ def home():
     )
 
 # ==========================================
-# ADMIN PAGES
+# ADMIN ROUTES
 # ==========================================
 
 @app.route("/add_team", methods=["GET", "POST"])
@@ -260,7 +277,10 @@ def add_player():
     teams = Team.query.all()
 
     if request.method == "POST":
-        db.session.add(Player(name=request.form["name"], team_id=request.form["team_id"]))
+        db.session.add(Player(
+            name=request.form["name"],
+            team_id=request.form["team_id"]
+        ))
         db.session.commit()
         return redirect("/")
 
