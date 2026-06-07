@@ -345,18 +345,22 @@ def add_goals():
     players = Player.query.all()
 
     if request.method == "POST":
-        pid = request.form["player_id"]
-        g = int(request.form["goals"])
+    pid = request.form["player_id"]
+    g = int(request.form["goals"])
 
-        goal = Goal.query.filter_by(player_id=pid).first()
+    # 🚫 BLOKADA UJEMNYCH GOLI
+    if g < 0:
+        g = 0
 
-        if goal:
-            goal.goals += g
-        else:
-            db.session.add(Goal(player_id=pid, goals=g))
+    goal = Goal.query.filter_by(player_id=pid).first()
 
-        db.session.commit()
-        return redirect("/admin")
+    if goal:
+        goal.goals += g
+    else:
+        db.session.add(Goal(player_id=pid, goals=g))
+
+    db.session.commit()
+    return redirect("/admin")
 
     return render_template_string("""
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
