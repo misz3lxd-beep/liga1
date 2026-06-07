@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # ==========================================
-# AZURE CONFIG
+# CONFIG
 # ==========================================
 
 app.secret_key = "liga-secret-123"
@@ -82,7 +82,7 @@ with app.app_context():
         db.session.commit()
 
 # ==========================================
-# DECORATOR
+# ADMIN DECORATOR
 # ==========================================
 
 def admin_required(f):
@@ -189,6 +189,7 @@ def logout():
 @admin_required
 def admin():
     teams = Team.query.all()
+    players = Player.query.all()
 
     return render_template_string("""
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -199,6 +200,7 @@ def admin():
 
         <div class="row mt-4">
 
+            <!-- TEAM -->
             <div class="col-md-4">
                 <div class="card p-3 shadow">
                     <h5>➕ Drużyna</h5>
@@ -209,6 +211,7 @@ def admin():
                 </div>
             </div>
 
+            <!-- PLAYER -->
             <div class="col-md-4">
                 <div class="card p-3 shadow">
                     <h5>👤 Zawodnik</h5>
@@ -226,10 +229,15 @@ def admin():
                 </div>
             </div>
 
+            <!-- GAME + GOALS -->
             <div class="col-md-4">
                 <div class="card p-3 shadow">
                     <h5>⚽ Mecze</h5>
                     <a href="/add_game" class="btn btn-warning w-100">Dodaj mecz</a>
+
+                    <a href="/add_goals" class="btn btn-dark w-100 mt-2">
+                        🎯 Dodaj gole
+                    </a>
                 </div>
             </div>
 
@@ -266,7 +274,7 @@ def add_player():
     return redirect("/admin")
 
 # ==========================================
-# ADD GAME (WITH VALIDATION)
+# ADD GAME
 # ==========================================
 
 @app.route("/add_game", methods=["GET", "POST"])
@@ -280,7 +288,7 @@ def add_game():
         away = request.form["away"]
 
         if home == away:
-            error = "❌ Nie można dodać meczu tej samej drużyny"
+            error = "❌ Nie można grać przeciwko sobie"
         else:
             db.session.add(Game(
                 home_team_id=home,
@@ -328,6 +336,56 @@ def add_game():
     """, teams=teams, error=error)
 
 # ==========================================
+# ADD GOALS (KRÓL STRZELCÓW)
+# ==========================================
+
+@app.route("/add_goals", methods=["GET", "POST"])
+@admin_required
+def add_goals():
+    players = Player.query.all()
+
+    if request.method == "POST":
+        pid = request.form["player_id"]
+        g = int(request.form["goals"])
+
+        goal = Goal.query.filter_by(player_id=pid).first()
+
+        if goal:
+            goal.goals += g
+        else:
+            db.session.add(Goal(player_id=pid, goals=g))
+
+        db.session.commit()
+        return redirect("/admin")
+
+    return render_template_string("""
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <div class="container mt-5" style="max-width:500px;">
+        <div class="card p-4 shadow">
+
+            <h3>🎯 Dodaj gole</h3>
+
+            <form method="POST">
+
+                <select name="player_id" class="form-select mb-2">
+                    {% for p in players %}
+                        <option value="{{ p.id }}">{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <input name="goals" type="number" class="form-control mb-2" placeholder="Gole">
+
+                <button class="btn btn-warning w-100">Dodaj</button>
+            </form>
+
+            <a href="/admin" class="btn btn-secondary mt-2">Powrót</a>
+
+        </div>
+    </div>
+    """, players=players)
+
+# ==========================================
 # HOME
 # ==========================================
 
@@ -349,7 +407,6 @@ HTML = """
 
 <div>
 <b>{{ user }}</b>
-
 <a href="/login" class="btn btn-sm btn-primary">Login</a>
 <a href="/logout" class="btn btn-sm btn-danger">Logout</a>
 
